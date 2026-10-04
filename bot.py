@@ -350,6 +350,50 @@ CHECK_INTERVAL = _cfg["CHECK_INTERVAL"]
 SSH_PORT_START = _cfg["SSH_PORT_START"]
 SERVER_IP = _cfg.get("SERVER_IP", "127.0.0.1")
 
+_PLACEHOLDER_IPS = {
+    "127.0.0.1", "0.0.0.0", "localhost", "::1", "", "your.server.ip",
+    "server.ip", "example.com", "1.2.3.4",
+}
+
+
+def server_ip_looks_wrong():
+    """True when SERVER_IP cannot work for a customer trying to SSH in.
+
+    Every server DM quotes this address, so a placeholder left in the
+    config means every customer receives a command that can never connect.
+    Refusing to hand out servers is better than that.
+    """
+    ip = str(SERVER_IP or "").strip().strip('"').strip("'")
+    if ip.lower() in _PLACEHOLDER_IPS:
+        return (
+            f"`SERVER_IP` is set to `{ip}`, which is not an address a customer "
+            "can reach. Set it in `config.json` to this host's public or "
+            "routable IPv4 before handing out servers."
+        )
+    if not re.match(r"^\d{1,3}(\.\d{1,3}){3}$", ip):
+        return (
+            f"`SERVER_IP` is set to `{ip}`, which is not a plain IPv4 "
+            "address. Set it in `config.json` to this host's routable IPv4."
+        )
+    octets = [int(p) for p in ip.split(".")]
+    if any(o > 255 for o in octets):
+        return f"`SERVER_IP` is set to `{ip}`, which is not a valid IPv4 address."
+    if ip.startswith("10.") or ip.startswith("192.168.") or \
+            (ip.startswith("172.") and 16 <= int(ip.split(".")[1]) <= 31):
+        return (
+            f"`SERVER_IP` is set to the private address `{ip}`. Customers "
+            "cannot reach that from the internet. Use the host's public "
+            "address, or a port-forwarded one if it sits behind NAT."
+        )
+    return None
+
+
+SERVER_IP_PROBLEM = server_ip_looks_wrong()
+if SERVER_IP_PROBLEM:
+    logging.warning(
+        "SERVER_IP is not usable for customer connections: %s",
+        SERVER_IP_PROBLEM)
+
 cpu_monitor_active = True
 
 PERM_LEVELS = {
@@ -2379,6 +2423,14 @@ async def _provision_server(ctx_or_inter, spec, actor, target, ephemeral=True):
         raise RuntimeError(
             f"{VIRT_TYPES[virt]['label']} is not available on this host right now. "
             f"Run `!hypervisors` to see what is installed."
+        )
+
+    # A server whose SSH details cannot be reached is worse than no server.
+    # This is checked here so the wizard, the typed form and !buywc all stop
+    # at the same point instead of mailing out a dead address.
+    if SERVER_IP_PROBLEM:
+        raise RuntimeError(
+            f"Servers cannot be handed out yet. {SERVER_IP_PROBLEM}"
         )
 
     user_id = str(target.id)

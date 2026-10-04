@@ -87,7 +87,22 @@ hypervisors are available, then launches the bot.
 
 **`SERVER_IP` must be an address customers can actually reach.** Leaving it
 as `127.0.0.1` means every SSH command the bot hands out points at the
-customer's own machine. Use the host's public or private LAN IP.
+customer's own machine.
+
+The bot checks this at startup and refuses to hand out servers while the
+address is unusable. It blocks loopback and other placeholders, hostnames,
+anything that is not a plain IPv4, out of range octets, and private ranges
+such as `10.x`, `192.168.x` and `172.16-31.x`. The warning naming the exact
+problem appears in the log on every boot:
+
+```
+WARNING - SERVER_IP is not usable for customer connections: `SERVER_IP` is
+set to `127.0.0.1`, which is not an address a customer can reach.
+```
+
+`!create`, the graphical builder and `!buywc` all stop at that point rather
+than mailing out a dead address. If the host sits behind NAT, put the
+forwarded public address here.
 
 `SSH_PORT_START` is the first port handed out to customer servers. Each
 server gets the next free port.
